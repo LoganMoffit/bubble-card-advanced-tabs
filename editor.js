@@ -36,12 +36,24 @@ export function registerEditor() {
       this._expanded = new Set();
     }
 
+    _findScrollParent(el) {
+      let node = el;
+      while (node) {
+        if (node.scrollHeight > node.clientHeight) return node;
+        node = node.parentElement || node.host || null;
+      }
+      return null;
+    }
+
     set hass(hass) {
       this._hass = hass;
       this._hydrateAll();
     }
 
     setConfig(config) {
+      const scrollParent = this._findScrollParent(this);
+      const scrollTop = scrollParent ? scrollParent.scrollTop : null;
+
       this._config = deepClone(config || {});
       if (!Array.isArray(this._config.tabs)) this._config.tabs = [];
 
@@ -56,6 +68,7 @@ export function registerEditor() {
       // Ensure new fields exist
       this._config.marquee_title = !!this._config.marquee_title;
       this._config.marquee_speed_s = toNum(this._config.marquee_speed_s, 14);
+      this._config.card_radius = toNum(this._config.card_radius, 18);
 
       const iconBase = toNum(this._config.icon_size, 18);
       this._config.icon_size = iconBase;
@@ -70,6 +83,13 @@ export function registerEditor() {
 
       this._renderOnce();
       this._hydrateAll();
+
+      if (scrollParent && scrollTop !== null) {
+        requestAnimationFrame(() => {
+          const target = this._findScrollParent(this);
+          if (target) target.scrollTop = scrollTop;
+        });
+      }
     }
 
     _emit() {
@@ -100,6 +120,114 @@ export function registerEditor() {
 
       const hdr = this.shadowRoot?.querySelector(`[data-tab-hdr="${idx}"]`);
       if (hdr) hdr.textContent = tabs[idx].name || tabs[idx].id || `Tab ${idx + 1}`;
+    }
+
+    _moveTab(idx, dir) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const next = idx + dir;
+      if (!tabs[idx] || !tabs[next]) return;
+      const [moved] = tabs.splice(idx, 1);
+      tabs.splice(next, 0, moved);
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _subButtons(tabIdx) {
+      const t = this._tabs()[tabIdx];
+      if (!t) return [];
+      return Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+    }
+
+    _updateSubButton(tabIdx, subIdx, patch) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      if (!subs[subIdx]) return;
+      subs[subIdx] = { ...subs[subIdx], ...patch };
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _setSubActionType(tabIdx, subIdx, kind, actionType) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      const btn = subs[subIdx];
+      if (!btn) return;
+      const key = `${kind}_action`;
+      if (actionType === "none") {
+        btn[key] = null;
+      } else {
+        const next = { ...(btn[key] || {}) };
+        next.action = actionType;
+        btn[key] = next;
+      }
+      subs[subIdx] = btn;
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _updateSubAction(tabIdx, subIdx, kind, patch) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      const btn = subs[subIdx];
+      if (!btn) return;
+      const key = `${kind}_action`;
+      const next = { ...(btn[key] || {}) };
+      Object.assign(next, patch);
+      btn[key] = next;
+      subs[subIdx] = btn;
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _addSubButton(tabIdx) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      subs.push({
+        name: "",
+        icon: "mdi:circle",
+        entity_id: "",
+        tap_action: { action: "more-info" },
+      });
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _removeSubButton(tabIdx, subIdx) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      if (!subs[subIdx]) return;
+      subs.splice(subIdx, 1);
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
+    }
+
+    _moveSubButton(tabIdx, subIdx, dir) {
+      const tabs = this._tabs().map((t) => ({ ...t }));
+      const t = tabs[tabIdx];
+      if (!t) return;
+      const subs = Array.isArray(t.sub_buttons) ? t.sub_buttons.map((b) => ({ ...(b || {}) })) : [];
+      const next = subIdx + dir;
+      if (!subs[subIdx] || !subs[next]) return;
+      const [moved] = subs.splice(subIdx, 1);
+      subs.splice(next, 0, moved);
+      tabs[tabIdx] = { ...t, sub_buttons: subs };
+      this._config = { ...(this._config || {}), tabs };
+      this._emit();
     }
 
     _addTab() {
@@ -173,6 +301,53 @@ sub_buttons: [],
 
       const marquee = !!cfg.marquee_title;
       const marqueeSpeed = toNum(cfg.marquee_speed_s, 14);
+      const cardRadius = clamp(toNum(cfg.card_radius, 18), 8, 40);
+
+      const actionType = (a) => a?.action || "none";
+      const renderActionGroup = (tabIdx, subIdx, kind, label, actionCfg) => {
+        const type = actionType(actionCfg);
+        const entity = (actionCfg?.entity_id || "").toString();
+        const service = (actionCfg?.service || "").toString();
+        const data = actionCfg?.data ? JSON.stringify(actionCfg.data) : "";
+        const target = actionCfg?.target ? JSON.stringify(actionCfg.target) : "";
+        const nav = (actionCfg?.navigation_path || "").toString();
+        const url = (actionCfg?.url_path || "").toString();
+        return `
+          <div class="actionBlock">
+            <div class="row">
+              <div style="min-width:140px;">${label}</div>
+              <select data-sub-action-type="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}">
+                <option value="none" ${type === "none" ? "selected" : ""}>None</option>
+                <option value="more-info" ${type === "more-info" ? "selected" : ""}>More info</option>
+                <option value="navigate" ${type === "navigate" ? "selected" : ""}>Navigate</option>
+                <option value="url" ${type === "url" ? "selected" : ""}>URL</option>
+                <option value="call-service" ${type === "call-service" ? "selected" : ""}>Call service</option>
+              </select>
+            </div>
+            ${type === "more-info" ? `
+              <div class="row">
+                <ha-entity-picker label="Entity (optional)" data-sub-action-entity="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}"></ha-entity-picker>
+              </div>` : ``}
+            ${type === "navigate" ? `
+              <div class="row">
+                <ha-textfield label="Path" data-sub-action-nav="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${nav.replaceAll('"', "&quot;")}"></ha-textfield>
+              </div>` : ``}
+            ${type === "url" ? `
+              <div class="row">
+                <ha-textfield label="URL" data-sub-action-url="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${url.replaceAll('"', "&quot;")}"></ha-textfield>
+              </div>` : ``}
+            ${type === "call-service" ? `
+              <div class="row">
+                <ha-textfield label="Service" data-sub-action-service="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${service.replaceAll('"', "&quot;")}"></ha-textfield>
+                <ha-textfield label="Entity (optional)" data-sub-action-entity="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${entity.replaceAll('"', "&quot;")}"></ha-textfield>
+              </div>
+              <div class="row">
+                <ha-textfield label="Data (JSON)" data-sub-action-data="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${data.replaceAll('"', "&quot;")}"></ha-textfield>
+                <ha-textfield label="Target (JSON)" data-sub-action-target="${subIdx}" data-sub-tab="${tabIdx}" data-action-kind="${kind}" value="${target.replaceAll('"', "&quot;")}"></ha-textfield>
+              </div>` : ``}
+          </div>
+        `;
+      };
 
       this.shadowRoot.innerHTML = `
         <style>
@@ -186,9 +361,20 @@ sub_buttons: [],
           ha-textfield{min-width:180px;}
           select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);}
           .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+          .subhdr{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px;}
+          .actionBlock{margin-top:8px;padding-top:8px;border-top:1px dashed var(--divider-color);}
         </style>
 
         <div class="col">
+
+          <div class="card">
+            <div class="hdr"><b>Card</b></div>
+            <div class="row">
+              <div style="min-width:140px;">Corner radius</div>
+              <input id="cardRadius" type="range" min="8" max="40" step="1" value="${cardRadius}" style="flex:1;">
+              <div id="cardRadiusVal">${cardRadius}px</div>
+            </div>
+          </div>
 
           <div class="card">
             <div class="hdr"><b>Artwork</b><span class="pill">v5</span></div>
@@ -273,6 +459,8 @@ sub_buttons: [],
                     <div><span data-tab-hdr="${idx}"><b>${t.name || t.id}</b></span></div>
                     <div class="row" style="gap:8px;">
                       <ha-icon data-tab-chev="${idx}" icon="${open ? "mdi:chevron-up" : "mdi:chevron-down"}"></ha-icon>
+                      <ha-button data-tab-move="${idx}" data-tab-dir="-1">Up</ha-button>
+                      <ha-button data-tab-move="${idx}" data-tab-dir="1">Down</ha-button>
                       <ha-button data-tab-remove="${idx}">Remove</ha-button>
                     </div>
                   </div>
@@ -290,7 +478,42 @@ sub_buttons: [],
                     <div class="row"><ha-entity-picker label="Media entity" data-media="${idx}"></ha-entity-picker></div>
                     <div class="row"><ha-entity-picker label="Volume entity (optional)" data-volume="${idx}"></ha-entity-picker></div>
                     <div class="row"><ha-entity-picker label="Power entity (optional)" data-power="${idx}"></ha-entity-picker></div>
-<div class="muted">Volume uses volume_up/volume_down. Bar is read-only.</div>
+
+                    <div class="muted">Volume uses volume_up/volume_down. Bar is read-only.</div>
+
+                    <div class="subhdr">
+                      <b>Sub buttons</b>
+                      <ha-button data-sub-add="${idx}">Add Sub Button</ha-button>
+                    </div>
+
+                    <div class="col">
+                      ${this._subButtons(idx).map((b, subIdx) => `
+                        <div class="card">
+                          <div class="hdr">
+                            <div><b>${b.name || b.icon || `Sub ${subIdx + 1}`}</b></div>
+                            <div class="row" style="gap:8px;">
+                              <ha-button data-sub-move="${subIdx}" data-sub-tab="${idx}" data-sub-dir="-1">Up</ha-button>
+                              <ha-button data-sub-move="${subIdx}" data-sub-tab="${idx}" data-sub-dir="1">Down</ha-button>
+                              <ha-button data-sub-remove="${subIdx}" data-sub-tab="${idx}">Remove</ha-button>
+                            </div>
+                          </div>
+
+                          <div class="row">
+                            <ha-textfield label="Name" data-sub-name="${subIdx}" data-sub-tab="${idx}" value="${(b.name || "").replaceAll('"', "&quot;")}"></ha-textfield>
+                            <ha-icon-picker label="Icon" data-sub-icon="${subIdx}" data-sub-tab="${idx}" value="${b.icon || ""}"></ha-icon-picker>
+                          </div>
+
+                          <div class="row">
+                            <ha-entity-picker label="Entity (optional)" data-sub-entity="${subIdx}" data-sub-tab="${idx}"></ha-entity-picker>
+                          </div>
+
+                          ${renderActionGroup(idx, subIdx, "tap", "Tap action", b.tap_action)}
+                          ${renderActionGroup(idx, subIdx, "double_tap", "Double tap action", b.double_tap_action)}
+                          ${renderActionGroup(idx, subIdx, "hold", "Hold action", b.hold_action)}
+                        </div>
+                      `).join("")}
+                      ${this._subButtons(idx).length ? "" : `<div class="muted">No sub buttons yet.</div>`}
+                    </div>
                   </div>
                 </div>
               `;
@@ -337,6 +560,17 @@ sub_buttons: [],
       if (hideArt && !hideArt._wired) {
         hideArt._wired = true;
         hideArt.addEventListener("change", (e) => this._setTop("hide_artwork", e.target.checked));
+      }
+
+      const cardRadius = this.shadowRoot.getElementById("cardRadius");
+      const cardRadiusVal = this.shadowRoot.getElementById("cardRadiusVal");
+      if (cardRadius && !cardRadius._wired) {
+        cardRadius._wired = true;
+        cardRadius.addEventListener("input", (e) => {
+          const v = clamp(Number(e.target.value), 8, 40);
+          if (cardRadiusVal) cardRadiusVal.textContent = `${v}px`;
+          this._setTop("card_radius", v);
+        });
       }
 
       // ---- Marquee ----
@@ -401,6 +635,17 @@ sub_buttons: [],
         });
       });
 
+      this.shadowRoot.querySelectorAll("[data-tab-move]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const idx = Number(el.getAttribute("data-tab-move"));
+          const dir = Number(el.getAttribute("data-tab-dir"));
+          this._moveTab(idx, dir);
+        });
+      });
+
       // ---- Name/id/icon ----
       this.shadowRoot.querySelectorAll("[data-name]").forEach((el) => {
         if (el._wired) return;
@@ -433,7 +678,7 @@ sub_buttons: [],
       const setPicker = (el, value, domains = ["media_player"]) => {
         if (!el) return;
         el.hass = this._hass;
-        el.includeDomains = domains;
+        if (Array.isArray(domains)) el.includeDomains = domains;
         el.allowCustomEntity = true;
         el.value = value || "";
         el.configValue = value || "";
@@ -467,6 +712,167 @@ sub_buttons: [],
 
           el.addEventListener("value-changed", handler);
           el.addEventListener("change", handler);
+        });
+      });
+
+      // ---- Sub buttons ----
+      this.shadowRoot.querySelectorAll("[data-sub-add]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("click", () => {
+          const tabIdx = Number(el.getAttribute("data-sub-add"));
+          this._addSubButton(tabIdx);
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-remove]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("click", () => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-remove"));
+          this._removeSubButton(tabIdx, subIdx);
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-move]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("click", () => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-move"));
+          const dir = Number(el.getAttribute("data-sub-dir"));
+          this._moveSubButton(tabIdx, subIdx, dir);
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-name]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-name"));
+          this._updateSubButton(tabIdx, subIdx, { name: e.target.value });
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-icon]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("value-changed", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-icon"));
+          this._updateSubButton(tabIdx, subIdx, { icon: e.detail.value });
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-entity]").forEach((el) => {
+        const tabIdx = Number(el.getAttribute("data-sub-tab"));
+        const subIdx = Number(el.getAttribute("data-sub-entity"));
+        const btn = this._subButtons(tabIdx)[subIdx];
+        if (btn) setPicker(el, btn.entity_id, null);
+        if (el._wired) return;
+        el._wired = true;
+        const handler = (e) => {
+          const picked = readPickedValue(e);
+          this._updateSubButton(tabIdx, subIdx, { entity_id: picked });
+        };
+        el.addEventListener("value-changed", handler);
+        el.addEventListener("change", handler);
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-type]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("change", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-type"));
+          const kind = el.getAttribute("data-action-kind");
+          this._setSubActionType(tabIdx, subIdx, kind, e.target.value);
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-entity]").forEach((el) => {
+        const tabIdx = Number(el.getAttribute("data-sub-tab"));
+        const subIdx = Number(el.getAttribute("data-sub-action-entity"));
+        const kind = el.getAttribute("data-action-kind");
+        const btn = this._subButtons(tabIdx)[subIdx] || {};
+        const action = btn[`${kind}_action`] || {};
+        if (el.tagName?.toLowerCase?.() === "ha-entity-picker") {
+          setPicker(el, action.entity_id, null);
+        }
+        if (el._wired) return;
+        el._wired = true;
+        const handler = (e) => {
+          const picked = readPickedValue(e);
+          this._updateSubAction(tabIdx, subIdx, kind, { entity_id: picked });
+        };
+        el.addEventListener("value-changed", handler);
+        el.addEventListener("change", handler);
+        el.addEventListener("input", handler);
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-nav]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-nav"));
+          const kind = el.getAttribute("data-action-kind");
+          this._updateSubAction(tabIdx, subIdx, kind, { navigation_path: e.target.value });
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-url]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-url"));
+          const kind = el.getAttribute("data-action-kind");
+          this._updateSubAction(tabIdx, subIdx, kind, { url_path: e.target.value });
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-service]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-service"));
+          const kind = el.getAttribute("data-action-kind");
+          this._updateSubAction(tabIdx, subIdx, kind, { service: e.target.value });
+        });
+      });
+
+      const parseJson = (value) => {
+        if (!value) return null;
+        try { return JSON.parse(value); } catch (e) { return undefined; }
+      };
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-data]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-data"));
+          const kind = el.getAttribute("data-action-kind");
+          const parsed = parseJson(e.target.value);
+          if (parsed === undefined) return;
+          this._updateSubAction(tabIdx, subIdx, kind, { data: parsed });
+        });
+      });
+
+      this.shadowRoot.querySelectorAll("[data-sub-action-target]").forEach((el) => {
+        if (el._wired) return;
+        el._wired = true;
+        el.addEventListener("input", (e) => {
+          const tabIdx = Number(el.getAttribute("data-sub-tab"));
+          const subIdx = Number(el.getAttribute("data-sub-action-target"));
+          const kind = el.getAttribute("data-action-kind");
+          const parsed = parseJson(e.target.value);
+          if (parsed === undefined) return;
+          this._updateSubAction(tabIdx, subIdx, kind, { target: parsed });
         });
       });
     }

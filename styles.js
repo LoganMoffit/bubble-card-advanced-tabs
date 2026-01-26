@@ -11,9 +11,10 @@ export function cssCard() {
       --bc-volume-icon-size: var(--bc-icon-size, 18px);
     }
 
-    ha-card { border-radius: 18px; overflow:hidden; }
+    ha-card { border-radius: var(--bc-card-radius, 18px); overflow:hidden; }
 
     .card {
+      border-radius: var(--bc-card-radius, 18px);
       background: rgba(20, 25, 40, 0.35);
       backdrop-filter: blur(14px) saturate(1.25);
       -webkit-backdrop-filter: blur(14px) saturate(1.25);
@@ -30,6 +31,7 @@ export function cssCard() {
     .bgart {
       position:absolute;
       inset:0;
+      border-radius: inherit;
       background-size: cover;
       background-position: center;
       transform: scale(1.1);
@@ -38,6 +40,7 @@ export function cssCard() {
     .bgveil {
       position:absolute;
       inset:0;
+      border-radius: inherit;
       pointer-events:none;
     }
     .fg { position:relative; z-index:1; }
@@ -97,6 +100,13 @@ export function cssCard() {
     .power ha-icon { --mdc-icon-size: var(--bc-power-icon-size); }
 
     /* Title + artist */
+    .title-row {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+    }
+
     .title {
       font-size:14px;
       font-weight:600;
@@ -105,6 +115,7 @@ export function cssCard() {
       text-overflow:ellipsis;
       white-space:nowrap;
       min-width:0;
+      flex:1 1 auto;
     }
 
     /* Marquee title mode */
@@ -130,6 +141,25 @@ export function cssCard() {
     }
 
     .artist { font-size:12px; opacity:0.75; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    .eq {
+      width:22px; height:22px;
+      display:flex; align-items:center; justify-content:center;
+      opacity:0.6;
+      flex:0 0 auto;
+    }
+    .eq ha-icon { --mdc-icon-size: 18px; transform-origin: 50% 100%; }
+    .eq.playing { opacity:0.95; }
+    .eq.playing ha-icon {
+      animation: bc-eq 0.9s ease-in-out infinite;
+      will-change: transform;
+    }
+    @keyframes bc-eq {
+      0% { transform: scaleY(0.6); }
+      35% { transform: scaleY(1.05); }
+      70% { transform: scaleY(0.75); }
+      100% { transform: scaleY(0.6); }
+    }
 
     /* Controls */
     .controls { display:flex; align-items:center; gap:10px; margin-top:10px; }

@@ -77,6 +77,9 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
       marquee_title: false,
       marquee_speed_s: 14, // seconds per loop
 
+      // NEW: card radius
+      card_radius: 18,
+
       // NEW: icon sizing (px)
       icon_size: 18,
       tabs_icon_size: 18,
@@ -284,10 +287,20 @@ sub_buttons: []
     const controlsIcon = toNum(this._config.controls_icon_size, 20);
     const volumeIcon = toNum(this._config.volume_icon_size, iconSize);
     const subIcon = toNum(this._config.sub_icon_size, 20);
+    const cardRadius = toNum(this._config.card_radius, 18);
 
     // NEW: marquee config
     const marquee = !!this._config.marquee_title;
     const marqueeSpeed = toNum(this._config.marquee_speed_s, 14);
+
+    const displayTabs = this._tabs
+      .map((t, idx) => ({
+        t,
+        idx,
+        playing: this._state(t.media_entity || t.entity)?.state === "playing",
+      }))
+      .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)))
+      .map(entry => entry.t);
 
     this.shadowRoot.innerHTML = `
       <style>${cssCard()}</style>
@@ -300,12 +313,13 @@ sub_buttons: []
                --bc-controls-icon-size:${controlsIcon}px;
                --bc-volume-icon-size:${volumeIcon}px;
                --bc-sub-icon-size:${subIcon}px;
+               --bc-card-radius:${cardRadius}px;
              ">
           ${showBg ? `<div class="bgart" ${bgStyle}></div><div class="bgveil" ${veilStyle}></div>` : ``}
           <div class="fg">
 
             <div class="tabs">
-              ${this._tabs.map(t => `
+              ${displayTabs.map(t => `
                 <div class="tab ${t.id === tab.id ? "active" : ""}" data-tab="${t.id}">
                   ${t.icon ? `<ha-icon icon="${t.icon}"></ha-icon>` : ``}
                   <span>${t.name}</span>
@@ -321,7 +335,12 @@ sub_buttons: []
                   <div class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></div>
                 </div>
 
-                ${this._renderTitle(title, marquee, marqueeSpeed)}
+                <div class="title-row">
+                  ${this._renderTitle(title, marquee, marqueeSpeed)}
+                  <div class="eq ${isPlaying ? "playing" : ""}" title="${isPlaying ? "Playing" : "Paused"}">
+                    <ha-icon icon="mdi:equalizer"></ha-icon>
+                  </div>
+                </div>
                 <div class="artist">${artist || " "}</div>
 
                 <div class="controls">
