@@ -1,5 +1,7 @@
 {
   "name": "Bubble Card Advanced Tabs",
   "content_in_root": true,
-  "render_readme": true
+  "render_readme": true,
+  "filename": "card.js"
 }
+
