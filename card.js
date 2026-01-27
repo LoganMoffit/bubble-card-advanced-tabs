@@ -100,6 +100,18 @@ function cssCard() {
     }
     .tab.active { border:1px solid rgba(255,255,255,0.18); background: rgba(20,25,40,0.35); }
     .tab ha-icon { --mdc-icon-size: var(--bc-tabs-icon-size); opacity:0.9; }
+    .tabEq {
+      width:16px; height:16px;
+      display:flex; align-items:center; justify-content:center;
+      margin-left:4px;
+      opacity:0.9;
+      flex:0 0 auto;
+    }
+    .tabEq ha-icon { --mdc-icon-size: 16px; transform-origin: 50% 100%; }
+    .tabEq.playing ha-icon {
+      animation: bc-eq 0.9s ease-in-out infinite;
+      will-change: transform;
+    }
 
     /* Main content */
     .content { display:grid; grid-template-columns: 96px 1fr; gap:10px; align-items:center; }
@@ -549,8 +561,7 @@ sub_buttons: []
         idx,
         playing: this._state(t.media_entity || t.entity)?.state === "playing",
       }))
-      .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)))
-      .map(entry => entry.t);
+      .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)));
 
     this.shadowRoot.innerHTML = `
       <style>${cssCard()}</style>
@@ -569,10 +580,11 @@ sub_buttons: []
           <div class="fg">
 
             <div class="tabs">
-              ${displayTabs.map(t => `
+              ${displayTabs.map(({ t, playing }) => `
                 <div class="tab ${t.id === tab.id ? "active" : ""}" data-tab="${t.id}">
                   ${t.icon ? `<ha-icon icon="${t.icon}"></ha-icon>` : ``}
                   <span>${t.name}</span>
+                  ${playing ? `<span class="tabEq playing"><ha-icon icon="mdi:equalizer"></ha-icon></span>` : ``}
                 </div>`).join("")}
             </div>
 
@@ -733,6 +745,8 @@ function registerEditor() {
       this._hass = null;
       this._config = null;
       this._expanded = new Set();
+      this._renderSig = "";
+      this._forceRender = false;
     }
 
     _findScrollParent(el) {
@@ -780,7 +794,15 @@ function registerEditor() {
       const tabs = this._tabs();
       if (tabs[0] && !this._expanded.size) this._expanded.add(tabs[0].id);
 
-      this._renderOnce();
+      const sig = this._structureSig(tabs);
+      const shouldRender = this._forceRender || !this._renderSig || sig !== this._renderSig;
+      if (shouldRender) {
+        this._renderOnce();
+        this._renderSig = sig;
+      } else {
+        this._syncHeaders();
+      }
+      this._forceRender = false;
       this._hydrateAll();
 
       if (scrollParent && scrollTop !== null) {
@@ -803,6 +825,25 @@ function registerEditor() {
 
     _tabs() {
       return normalizeTabsEditor(this._config?.tabs || []);
+    }
+
+    _structureSig(tabs) {
+      return `${tabs.length}|${tabs.map(t => (Array.isArray(t.sub_buttons) ? t.sub_buttons.length : 0)).join(",")}`;
+    }
+
+    _syncHeaders() {
+      const tabs = this._tabs();
+      tabs.forEach((t, idx) => {
+        const hdr = this.shadowRoot?.querySelector(`[data-tab-hdr="${idx}"]`);
+        if (hdr) hdr.textContent = t.name || t.id || `Tab ${idx + 1}`;
+      });
+      this.shadowRoot?.querySelectorAll("[data-sub-hdr]").forEach((el) => {
+        const tabIdx = Number(el.getAttribute("data-sub-tab"));
+        const subIdx = Number(el.getAttribute("data-sub-hdr"));
+        const btn = this._subButtons(tabIdx)[subIdx];
+        if (!btn) return;
+        el.innerHTML = `<b>${btn.name || btn.icon || `Sub ${subIdx + 1}`}</b>`;
+      });
     }
 
     _setTop(key, value) {
@@ -850,6 +891,7 @@ function registerEditor() {
     }
 
     _setSubActionType(tabIdx, subIdx, kind, actionType) {
+      this._forceRender = true;
       const tabs = this._tabs().map((t) => ({ ...t }));
       const t = tabs[tabIdx];
       if (!t) return;
@@ -1189,7 +1231,7 @@ function registerEditor() {
                       ${this._subButtons(idx).map((b, subIdx) => `
                         <div class="card">
                           <div class="hdr">
-                            <div><b>${b.name || b.icon || `Sub ${subIdx + 1}`}</b></div>
+                            <div data-sub-hdr="${subIdx}" data-sub-tab="${idx}"><b>${b.name || b.icon || `Sub ${subIdx + 1}`}</b></div>
                             <div class="row" style="gap:8px;">
                               <ha-button data-sub-move="${subIdx}" data-sub-tab="${idx}" data-sub-dir="-1">Up</ha-button>
                               <ha-button data-sub-move="${subIdx}" data-sub-tab="${idx}" data-sub-dir="1">Down</ha-button>
