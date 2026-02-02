@@ -324,7 +324,12 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this._maybeRender();
+    if (!this._rendered) {
+      this._renderAndRemember();
+      return;
+    }
+    this._updateDynamic();
+    this._renderSig = this._renderSignature();
   }
 
   getCardSize() { return 5; }
@@ -466,7 +471,7 @@ sub_buttons: []
   _maybeRender() {
     const sig = this._renderSignature();
     if (!sig || sig === this._renderSig) return;
-    this._render();
+    this._updateDynamic();
     this._renderSig = sig;
   }
 
@@ -519,19 +524,7 @@ sub_buttons: []
     const cfg = this._config || {};
     const { tab, deviceName, title, artist, art, isPlaying, vol100 } = this._currentData();
 
-    if (refs.tabs && refs.tabEls && refs.tabEls.length) {
-      const order = this._tabs
-        .map((t, idx) => ({
-          id: t.id,
-          idx,
-          playing: this._state(t.media_entity || t.entity)?.state === "playing",
-        }))
-        .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)));
-      order.forEach((item) => {
-        const el = refs.tabMap.get(item.id);
-        if (el && el.parentElement === refs.tabs) refs.tabs.appendChild(el);
-      });
-
+    if (refs.tabEls && refs.tabEls.length) {
       refs.tabEls.forEach((el) => {
         const id = el.getAttribute("data-tab");
         el.classList.toggle("active", id === tab.id);
@@ -780,12 +773,7 @@ sub_buttons: []
     const marqueeSpeed = toNum(this._config.marquee_speed_s, 14);
 
     const displayTabs = this._tabs
-      .map((t, idx) => ({
-        t,
-        idx,
-        playing: this._state(t.media_entity || t.entity)?.state === "playing",
-      }))
-      .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)));
+      .map((t) => ({ t }));
 
     if (fullRender) {
       this.shadowRoot.innerHTML = `
@@ -806,11 +794,11 @@ sub_buttons: []
             <div class="fg">
 
               <div class="tabs">
-                ${displayTabs.map(({ t, playing }) => `
+                ${displayTabs.map(({ t }) => `
                   <div class="tab ${t.id === tab.id ? "active" : ""}" data-tab="${t.id}">
                     ${t.icon ? `<ha-icon icon="${t.icon}"></ha-icon>` : ``}
                     <span>${t.name}</span>
-                    <span class="tabEq ${playing ? "playing" : ""}" style="${playing ? "" : "display:none;"}"><ha-icon icon="mdi:equalizer"></ha-icon></span>
+                    <span class="tabEq" style="display:none;"><ha-icon icon="mdi:equalizer"></ha-icon></span>
                   </div>`).join("")}
               </div>
 
