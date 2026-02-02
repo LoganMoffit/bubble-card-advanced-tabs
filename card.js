@@ -303,6 +303,7 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
     this._structSig = "";
     this._rendered = false;
     this._refs = {};
+    this._lastDynamic = null;
 
     // hold-to-repeat timer for volume buttons
     this._repeatTimer = null;
@@ -521,8 +522,28 @@ sub_buttons: []
     const refs = this._refs || {};
     if (!refs.card) return;
 
+    const scrollParent = this._findScrollParent(this);
+    const scrollTop = scrollParent ? scrollParent.scrollTop : null;
+
     const cfg = this._config || {};
     const { tab, deviceName, title, artist, art, isPlaying, vol100 } = this._currentData();
+    const dynSig = [
+      tab.id || "",
+      deviceName || "",
+      title || "",
+      artist || "",
+      art || "",
+      isPlaying ? "1" : "0",
+      vol100,
+      cfg.hide_artwork ? "1" : "0",
+      cfg.marquee_title ? "1" : "0",
+      cfg.marquee_speed_s ?? "",
+      cfg.artwork_background || "",
+      cfg.artwork_blur ?? "",
+      cfg.artwork_opacity ?? "",
+    ].join("|");
+    if (this._lastDynamic === dynSig) return;
+    this._lastDynamic = dynSig;
 
     if (refs.tabEls && refs.tabEls.length) {
       refs.tabEls.forEach((el) => {
@@ -584,6 +605,13 @@ sub_buttons: []
       } else {
         refs.bgveil.style.display = "none";
       }
+    }
+
+    if (scrollParent && scrollTop !== null) {
+      requestAnimationFrame(() => {
+        const target = this._findScrollParent(this);
+        if (target) target.scrollTop = scrollTop;
+      });
     }
   }
 
