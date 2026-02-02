@@ -143,6 +143,7 @@ function cssCard() {
       gap:8px;
       min-width:0;
     }
+    .titleSlot { flex:1 1 auto; min-width:0; }
 
     /* Title + artist */
     .title {
@@ -299,6 +300,9 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
     this._selectedId = null;
     this._storageKey = null;
     this._renderSig = "";
+    this._structSig = "";
+    this._rendered = false;
+    this._refs = {};
 
     // hold-to-repeat timer for volume buttons
     this._repeatTimer = null;
@@ -435,6 +439,25 @@ sub_buttons: []
     ].join("|");
   }
 
+  _structureSigCard() {
+    if (!this._config || !this._tabs.length) return "";
+    const cfg = this._config;
+    return [
+      this._tabs.length,
+      this._tabs.map(t => `${t.id}|${t.name || ""}|${t.icon || ""}|${Array.isArray(t.sub_buttons) ? t.sub_buttons.length : 0}`).join(";"),
+      cfg.hide_artwork ? "1" : "0",
+      cfg.marquee_title ? "1" : "0",
+      cfg.artwork_background || "",
+      cfg.card_radius ?? "",
+      cfg.icon_size ?? "",
+      cfg.tabs_icon_size ?? "",
+      cfg.power_icon_size ?? "",
+      cfg.controls_icon_size ?? "",
+      cfg.volume_icon_size ?? "",
+      cfg.sub_icon_size ?? "",
+    ].join("|");
+  }
+
   _renderAndRemember() {
     this._render();
     this._renderSig = this._renderSignature();
@@ -445,6 +468,130 @@ sub_buttons: []
     if (!sig || sig === this._renderSig) return;
     this._render();
     this._renderSig = sig;
+  }
+
+  _cacheRefs() {
+    if (!this.shadowRoot) return;
+    this._refs = {
+      card: this.shadowRoot.querySelector(".card"),
+      bgart: this.shadowRoot.querySelector(".bgart"),
+      bgveil: this.shadowRoot.querySelector(".bgveil"),
+      art: this.shadowRoot.querySelector(".art"),
+      artImg: this.shadowRoot.querySelector(".art img"),
+      tabs: this.shadowRoot.querySelector(".tabs"),
+      tabEls: Array.from(this.shadowRoot.querySelectorAll(".tab")),
+      tabMap: new Map(),
+      device: this.shadowRoot.querySelector(".device"),
+      titleSlot: this.shadowRoot.querySelector(".titleSlot"),
+      artist: this.shadowRoot.querySelector(".artist"),
+      eq: this.shadowRoot.querySelector(".eq"),
+      playIcon: this.shadowRoot.querySelector('.controls .ctl.primary ha-icon'),
+      volFill: this.shadowRoot.querySelector(".volFill"),
+      volValue: this.shadowRoot.querySelector(".volValue"),
+    };
+    this._refs.tabEls.forEach((el) => {
+      const id = el.getAttribute("data-tab");
+      if (id) this._refs.tabMap.set(id, el);
+    });
+  }
+
+  _currentData() {
+    const tab = this._activeTab();
+    const mediaEntity = tab.media_entity || tab.entity;
+    const volumeEntity = tab.volume_entity || mediaEntity;
+    const powerEntity = tab.power_entity || mediaEntity;
+    const ms = this._state(mediaEntity);
+    const vs = this._state(volumeEntity);
+    const deviceName = tab.title || tab.name || (ms?.attributes?.friendly_name ?? mediaEntity ?? "Media");
+    const title = ms?.attributes?.media_title || ms?.attributes?.app_name || (ms ? ms.state : "") || "";
+    const artist = ms?.attributes?.media_artist || ms?.attributes?.source || "";
+    const art = ms?.attributes?.entity_picture || ms?.attributes?.entity_picture_local || "";
+    const isPlaying = ms?.state === "playing";
+    const vol01 = clamp01(vs?.attributes?.volume_level ?? 0);
+    const vol100 = Math.round(vol01 * 100);
+    return { tab, mediaEntity, volumeEntity, powerEntity, deviceName, title, artist, art, isPlaying, vol100 };
+  }
+
+  _updateDynamic() {
+    const refs = this._refs || {};
+    if (!refs.card) return;
+
+    const cfg = this._config || {};
+    const { tab, deviceName, title, artist, art, isPlaying, vol100 } = this._currentData();
+
+    if (refs.tabs && refs.tabEls && refs.tabEls.length) {
+      const order = this._tabs
+        .map((t, idx) => ({
+          id: t.id,
+          idx,
+          playing: this._state(t.media_entity || t.entity)?.state === "playing",
+        }))
+        .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)));
+      order.forEach((item) => {
+        const el = refs.tabMap.get(item.id);
+        if (el && el.parentElement === refs.tabs) refs.tabs.appendChild(el);
+      });
+
+      refs.tabEls.forEach((el) => {
+        const id = el.getAttribute("data-tab");
+        el.classList.toggle("active", id === tab.id);
+        const eq = el.querySelector(".tabEq");
+        if (eq) {
+          const t = this._tabs.find(x => x.id === id);
+          const playing = this._state(t?.media_entity || t?.entity)?.state === "playing";
+          eq.classList.toggle("playing", !!playing);
+          eq.style.display = playing ? "" : "none";
+        }
+      });
+    }
+
+    if (refs.device) refs.device.textContent = deviceName || " ";
+    if (refs.titleSlot) refs.titleSlot.innerHTML = this._renderTitle(title, !!cfg.marquee_title, toNum(cfg.marquee_speed_s, 14));
+    if (refs.artist) refs.artist.textContent = artist || " ";
+    if (refs.eq) refs.eq.classList.toggle("playing", !!isPlaying);
+    if (refs.playIcon) refs.playIcon.setAttribute("icon", isPlaying ? "mdi:pause" : "mdi:play");
+    if (refs.volFill) refs.volFill.style.width = `${Math.max(0, Math.min(100, vol100))}%`;
+    if (refs.volValue) refs.volValue.textContent = String(vol100);
+
+    const hideArt = !!cfg.hide_artwork;
+    if (refs.art) refs.art.style.display = hideArt ? "none" : "";
+    if (refs.artImg) {
+      if (art) {
+        refs.artImg.setAttribute("src", art);
+        refs.artImg.style.display = "";
+      } else {
+        refs.artImg.setAttribute("src", "");
+        refs.artImg.style.display = "none";
+      }
+    }
+
+    const bgMode = (cfg.artwork_background || "off");
+    const blur = toNum(cfg.artwork_blur, 16);
+    const opac = clamp01(cfg.artwork_opacity ?? 0.42);
+    const showBg = !!art && bgMode !== "off";
+    const bgOpacity = bgMode === "cover" ? Math.min(opac, 0.30) : opac;
+
+    if (refs.bgart) {
+      if (showBg) {
+        refs.bgart.style.backgroundImage = `url('${art}')`;
+        refs.bgart.style.filter = `blur(${blur}px) saturate(1.2)`;
+        refs.bgart.style.opacity = String(bgOpacity);
+        refs.bgart.style.display = "";
+      } else {
+        refs.bgart.style.display = "none";
+      }
+    }
+    if (refs.bgveil) {
+      if (showBg) {
+        refs.bgveil.style.background = `linear-gradient(180deg,
+          rgba(10,12,18,${bgMode === "cover" ? 0.62 : 0.55}) 0%,
+          rgba(10,12,18,${bgMode === "cover" ? 0.46 : 0.35}) 45%,
+          rgba(10,12,18,${bgMode === "cover" ? 0.70 : 0.60}) 100%)`;
+        refs.bgveil.style.display = "";
+      } else {
+        refs.bgveil.style.display = "none";
+      }
+    }
   }
 
   _state(entityId) {
@@ -577,6 +724,8 @@ sub_buttons: []
 
     const scrollParent = this._findScrollParent(this);
     const scrollTop = scrollParent ? scrollParent.scrollTop : null;
+    const structSig = this._structureSigCard();
+    const fullRender = !this._rendered || structSig !== this._structSig;
 
     const tab = this._activeTab();
 
@@ -638,151 +787,164 @@ sub_buttons: []
       }))
       .sort((a, b) => (a.playing === b.playing ? a.idx - b.idx : (a.playing ? -1 : 1)));
 
-    this.shadowRoot.innerHTML = `
-      <style>${cssCard()}</style>
-      <ha-card>
-        <div class="card ${muted ? "muted" : ""}"
-             style="
-               --bc-icon-size:${iconSize}px;
-               --bc-tabs-icon-size:${tabsIcon}px;
-               --bc-power-icon-size:${powerIcon}px;
-               --bc-controls-icon-size:${controlsIcon}px;
-               --bc-volume-icon-size:${volumeIcon}px;
-               --bc-sub-icon-size:${subIcon}px;
-               --bc-card-radius:${cardRadius}px;
-             ">
-          ${showBg ? `<div class="bgart" ${bgStyle}></div><div class="bgveil" ${veilStyle}></div>` : ``}
-          <div class="fg">
+    if (fullRender) {
+      this.shadowRoot.innerHTML = `
+        <style>${cssCard()}</style>
+        <ha-card>
+          <div class="card ${muted ? "muted" : ""}"
+               style="
+                 --bc-icon-size:${iconSize}px;
+                 --bc-tabs-icon-size:${tabsIcon}px;
+                 --bc-power-icon-size:${powerIcon}px;
+                 --bc-controls-icon-size:${controlsIcon}px;
+                 --bc-volume-icon-size:${volumeIcon}px;
+                 --bc-sub-icon-size:${subIcon}px;
+                 --bc-card-radius:${cardRadius}px;
+               ">
+            <div class="bgart" ${bgStyle}></div>
+            <div class="bgveil" ${veilStyle}></div>
+            <div class="fg">
 
-            <div class="tabs">
-              ${displayTabs.map(({ t, playing }) => `
-                <div class="tab ${t.id === tab.id ? "active" : ""}" data-tab="${t.id}">
-                  ${t.icon ? `<ha-icon icon="${t.icon}"></ha-icon>` : ``}
-                  <span>${t.name}</span>
-                  ${playing ? `<span class="tabEq playing"><ha-icon icon="mdi:equalizer"></ha-icon></span>` : ``}
-                </div>`).join("")}
-            </div>
-
-            <div class="${contentCls}">
-              ${hideArt ? `` : `<div class="art">${art ? `<img src="${art}" alt="artwork">` : ``}</div>`}
-
-              <div class="meta">
-                <div class="name-row">
-                  <div class="device">${deviceName}</div>
-                  <div class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></div>
-                </div>
-
-                <div class="title-row">
-                  ${this._renderTitle(title, marquee, marqueeSpeed)}
-                  <div class="eq ${isPlaying ? "playing" : ""}" title="${isPlaying ? "Playing" : "Paused"}">
-                    <ha-icon icon="mdi:equalizer"></ha-icon>
-                  </div>
-                </div>
-                <div class="artist">${artist || " "}</div>
-
-                <div class="controls">
-                  <div class="ctl" data-action="prev" title="Previous"><ha-icon icon="mdi:skip-previous"></ha-icon></div>
-                  <div class="ctl primary" data-action="playpause" title="Play/Pause">
-                    <ha-icon icon="${isPlaying ? "mdi:pause" : "mdi:play"}"></ha-icon>
-                  </div>
-                  <div class="ctl" data-action="next" title="Next"><ha-icon icon="mdi:skip-next"></ha-icon></div>
-                </div>
-
-                <!-- NEW VOLUME: one long horizontal bubble; read-only bar; buttons on ends -->
-                <div class="volumeBubble" title="Volume">
-                  <div class="volBtn" data-action="volDown" title="Volume down">
-                    <ha-icon icon="mdi:volume-minus"></ha-icon>
-                  </div>
-
-                  <div class="volBarWrap">
-                    <div class="volBar" aria-label="Volume level">
-                      <div class="volFill" style="width:${Math.max(0, Math.min(100, vol100))}%"></div>
-                    </div>
-                    <div class="volValue">${vol100}</div>
-                  </div>
-
-                  <div class="volBtn" data-action="volUp" title="Volume up">
-                    <ha-icon icon="mdi:volume-plus"></ha-icon>
-                  </div>
-                </div>
-
+              <div class="tabs">
+                ${displayTabs.map(({ t, playing }) => `
+                  <div class="tab ${t.id === tab.id ? "active" : ""}" data-tab="${t.id}">
+                    ${t.icon ? `<ha-icon icon="${t.icon}"></ha-icon>` : ``}
+                    <span>${t.name}</span>
+                    <span class="tabEq ${playing ? "playing" : ""}" style="${playing ? "" : "display:none;"}"><ha-icon icon="mdi:equalizer"></ha-icon></span>
+                  </div>`).join("")}
               </div>
+
+              <div class="${contentCls}">
+                <div class="art"><img src="${art || ""}" alt="artwork"></div>
+
+                <div class="meta">
+                  <div class="name-row">
+                    <div class="device">${deviceName}</div>
+                    <div class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></div>
+                  </div>
+
+                  <div class="title-row">
+                    <div class="titleSlot">${this._renderTitle(title, marquee, marqueeSpeed)}</div>
+                    <div class="eq ${isPlaying ? "playing" : ""}" title="${isPlaying ? "Playing" : "Paused"}">
+                      <ha-icon icon="mdi:equalizer"></ha-icon>
+                    </div>
+                  </div>
+                  <div class="artist">${artist || " "}</div>
+
+                  <div class="controls">
+                    <div class="ctl" data-action="prev" title="Previous"><ha-icon icon="mdi:skip-previous"></ha-icon></div>
+                    <div class="ctl primary" data-action="playpause" title="Play/Pause">
+                      <ha-icon icon="${isPlaying ? "mdi:pause" : "mdi:play"}"></ha-icon>
+                    </div>
+                    <div class="ctl" data-action="next" title="Next"><ha-icon icon="mdi:skip-next"></ha-icon></div>
+                  </div>
+
+                  <!-- NEW VOLUME: one long horizontal bubble; read-only bar; buttons on ends -->
+                  <div class="volumeBubble" title="Volume">
+                    <div class="volBtn" data-action="volDown" title="Volume down">
+                      <ha-icon icon="mdi:volume-minus"></ha-icon>
+                    </div>
+
+                    <div class="volBarWrap">
+                      <div class="volBar" aria-label="Volume level">
+                        <div class="volFill" style="width:${Math.max(0, Math.min(100, vol100))}%"></div>
+                      </div>
+                      <div class="volValue">${vol100}</div>
+                    </div>
+
+                    <div class="volBtn" data-action="volUp" title="Volume up">
+                      <ha-icon icon="mdi:volume-plus"></ha-icon>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              ${this._renderSubButtons(tab, mediaEntity)}
+
             </div>
-
-            ${this._renderSubButtons(tab, mediaEntity)}
-
           </div>
-        </div>
-      </ha-card>
-    `;
+        </ha-card>
+      `;
 
-    // Tabs
-    this.shadowRoot.querySelectorAll(".tab").forEach(el =>
-      el.addEventListener("click", () => this._selectTab(el.getAttribute("data-tab")))
-    );
+      // Tabs
+      this.shadowRoot.querySelectorAll(".tab").forEach(el =>
+        el.addEventListener("click", () => this._selectTab(el.getAttribute("data-tab")))
+      );
 
-    // Actions
-    const doAction = (action) => {
-      if (!this._hass) return;
+      // Actions
+      const doAction = (action) => {
+        if (!this._hass) return;
+        const t = this._activeTab();
+        const m = t.media_entity || t.entity;
+        const v = t.volume_entity || m;
+        const p = t.power_entity || m;
 
-      if (action === "prev" && mediaEntity) return this._call("media_player.media_previous_track", { entity_id: mediaEntity });
-      if (action === "next" && mediaEntity) return this._call("media_player.media_next_track", { entity_id: mediaEntity });
-      if (action === "playpause" && mediaEntity) return this._call("media_player.media_play_pause", { entity_id: mediaEntity });
+        if (action === "prev" && m) return this._call("media_player.media_previous_track", { entity_id: m });
+        if (action === "next" && m) return this._call("media_player.media_next_track", { entity_id: m });
+        if (action === "playpause" && m) return this._call("media_player.media_play_pause", { entity_id: m });
 
-      if (action === "power" && powerEntity) {
-        const st = this._state(powerEntity);
-        const on = st ? st.state !== "off" : true;
-        return this._call(on ? "media_player.turn_off" : "media_player.turn_on", { entity_id: powerEntity });
-      }
+        if (action === "power" && p) {
+          const st = this._state(p);
+          const on = st ? st.state !== "off" : true;
+          return this._call(on ? "media_player.turn_off" : "media_player.turn_on", { entity_id: p });
+        }
 
-      // NEW: volume buttons (service calls)
-      if (action === "volDown" && volumeEntity) return this._call("media_player.volume_down", { entity_id: volumeEntity });
-      if (action === "volUp" && volumeEntity) return this._call("media_player.volume_up", { entity_id: volumeEntity });
-    };
+        // NEW: volume buttons (service calls)
+        if (action === "volDown" && v) return this._call("media_player.volume_down", { entity_id: v });
+        if (action === "volUp" && v) return this._call("media_player.volume_up", { entity_id: v });
+      };
 
-    this.shadowRoot.querySelectorAll("[data-action]").forEach((el) => {
-      const action = el.getAttribute("data-action");
+      this.shadowRoot.querySelectorAll("[data-action]").forEach((el) => {
+        const action = el.getAttribute("data-action");
 
-      // Volume buttons: press-and-hold repeats until release (great on iPhone)
-      if (action === "volUp" || action === "volDown") {
-        const fn = () => doAction(action);
+        // Volume buttons: press-and-hold repeats until release (great on iPhone)
+        if (action === "volUp" || action === "volDown") {
+          const fn = () => doAction(action);
 
-        el.addEventListener("pointerdown", (e) => {
-          e.preventDefault();
-          this._startRepeat(fn, 170);
-        });
+          el.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            this._startRepeat(fn, 170);
+          });
 
-        const stop = () => this._stopRepeat();
-        el.addEventListener("pointerup", stop);
-        el.addEventListener("pointercancel", stop);
-        el.addEventListener("pointerleave", stop);
+          const stop = () => this._stopRepeat();
+          el.addEventListener("pointerup", stop);
+          el.addEventListener("pointercancel", stop);
+          el.addEventListener("pointerleave", stop);
 
-        // Extra safety for app/background switches
-        window.addEventListener("blur", stop, { passive: true });
-        document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState !== "visible") stop();
-        });
+          // Extra safety for app/background switches
+          window.addEventListener("blur", stop, { passive: true });
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState !== "visible") stop();
+          });
 
-        return;
-      }
+          return;
+        }
 
-      // Everything else: single click
-      el.addEventListener("click", () => doAction(action));
-    });
-
-    // Sub buttons multi-actions
-    const subs = tab.sub_buttons;
-    if (Array.isArray(subs)) {
-      this.shadowRoot.querySelectorAll("[data-sub]").forEach(el => {
-        const idx = Number(el.getAttribute("data-sub"));
-        const cfg = subs[idx] || {};
-        this._wireMultiAction(el, {
-          tap_action: cfg.tap_action,
-          double_tap_action: cfg.double_tap_action,
-          hold_action: cfg.hold_action,
-        }, cfg.entity_id || mediaEntity);
+        // Everything else: single click
+        el.addEventListener("click", () => doAction(action));
       });
+
+      // Sub buttons multi-actions
+      const subs = tab.sub_buttons;
+      if (Array.isArray(subs)) {
+        this.shadowRoot.querySelectorAll("[data-sub]").forEach(el => {
+          const idx = Number(el.getAttribute("data-sub"));
+          const cfg = subs[idx] || {};
+          this._wireMultiAction(el, {
+            tap_action: cfg.tap_action,
+            double_tap_action: cfg.double_tap_action,
+            hold_action: cfg.hold_action,
+          }, cfg.entity_id || mediaEntity);
+        });
+      }
+
+      this._cacheRefs();
+      this._rendered = true;
+      this._structSig = structSig;
     }
+
+    this._updateDynamic();
 
     if (scrollParent && scrollTop !== null) {
       requestAnimationFrame(() => {
