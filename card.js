@@ -298,6 +298,7 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
     this._tabs = [];
     this._selectedId = null;
     this._storageKey = null;
+    this._renderSig = "";
 
     // hold-to-repeat timer for volume buttons
     this._repeatTimer = null;
@@ -314,12 +315,12 @@ export class BubbleCardAdvancedTabs extends HTMLElement {
     const saved = localStorage.getItem(this._storageKey);
     this._selectedId = saved && this._tabs.some(t => t.id === saved) ? saved : this._tabs[0].id;
 
-    this._render();
+    this._renderAndRemember();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._render();
+    this._maybeRender();
   }
 
   getCardSize() { return 5; }
@@ -368,11 +369,82 @@ sub_buttons: []
     if (id === this._selectedId) return;
     this._selectedId = id;
     localStorage.setItem(this._storageKey, id);
-    this._render();
+    this._renderAndRemember();
   }
 
   _activeTab() {
     return this._tabs.find(t => t.id === this._selectedId) || this._tabs[0];
+  }
+
+  _findScrollParent(el) {
+    let node = el;
+    while (node) {
+      if (node.scrollHeight > node.clientHeight) return node;
+      node = node.parentElement || node.host || null;
+    }
+    return null;
+  }
+
+  _renderSignature() {
+    if (!this._config || !this._tabs.length) return "";
+
+    const tab = this._activeTab();
+    const mediaEntity = tab.media_entity || tab.entity;
+    const volumeEntity = tab.volume_entity || mediaEntity;
+    const powerEntity = tab.power_entity || mediaEntity;
+
+    const ms = this._state(mediaEntity);
+    const vs = this._state(volumeEntity);
+    const ps = this._state(powerEntity);
+    const ma = ms?.attributes || {};
+
+    const tabsPlaying = this._tabs
+      .map((t) => {
+        const s = this._state(t.media_entity || t.entity);
+        return `${t.id}:${s?.state || ""}`;
+      })
+      .join("|");
+
+    const cfg = this._config;
+    return [
+      this._selectedId || "",
+      tabsPlaying,
+      ms?.state || "",
+      ma.media_title || "",
+      ma.app_name || "",
+      ma.media_artist || "",
+      ma.source || "",
+      ma.entity_picture || "",
+      ma.entity_picture_local || "",
+      ma.friendly_name || "",
+      vs?.attributes?.volume_level ?? "",
+      ps?.state || "",
+      cfg.artwork_background || "",
+      cfg.artwork_blur ?? "",
+      cfg.artwork_opacity ?? "",
+      cfg.hide_artwork ? "1" : "0",
+      cfg.marquee_title ? "1" : "0",
+      cfg.marquee_speed_s ?? "",
+      cfg.card_radius ?? "",
+      cfg.icon_size ?? "",
+      cfg.tabs_icon_size ?? "",
+      cfg.power_icon_size ?? "",
+      cfg.controls_icon_size ?? "",
+      cfg.volume_icon_size ?? "",
+      cfg.sub_icon_size ?? "",
+    ].join("|");
+  }
+
+  _renderAndRemember() {
+    this._render();
+    this._renderSig = this._renderSignature();
+  }
+
+  _maybeRender() {
+    const sig = this._renderSignature();
+    if (!sig || sig === this._renderSig) return;
+    this._render();
+    this._renderSig = sig;
   }
 
   _state(entityId) {
@@ -502,6 +574,9 @@ sub_buttons: []
       this.shadowRoot.innerHTML = `<ha-card><div class="hint">Configure tabs to use this card.</div></ha-card>`;
       return;
     }
+
+    const scrollParent = this._findScrollParent(this);
+    const scrollTop = scrollParent ? scrollParent.scrollTop : null;
 
     const tab = this._activeTab();
 
@@ -706,6 +781,13 @@ sub_buttons: []
           double_tap_action: cfg.double_tap_action,
           hold_action: cfg.hold_action,
         }, cfg.entity_id || mediaEntity);
+      });
+    }
+
+    if (scrollParent && scrollTop !== null) {
+      requestAnimationFrame(() => {
+        const target = this._findScrollParent(this);
+        if (target) target.scrollTop = scrollTop;
       });
     }
   }
