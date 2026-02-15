@@ -449,6 +449,7 @@ sub_buttons: []
     if (!this._config || !this._tabs.length) return "";
     const cfg = this._config;
     return [
+      this._selectedId || "",
       this._tabs.length,
       this._tabs.map(t => `${t.id}|${t.name || ""}|${t.icon || ""}|${Array.isArray(t.sub_buttons) ? t.sub_buttons.length : 0}`).join(";"),
       cfg.hide_artwork ? "1" : "0",
